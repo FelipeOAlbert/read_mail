@@ -23,7 +23,7 @@
         {
             $this->conexao = imap_open($this->servidor, $this->login, $this->senha);
             
-            if (!$this->conexao) {
+            if (!$this->conexao){
                 die('Erro ao conectar: '.imap_last_error());
             }
         }
@@ -36,8 +36,8 @@
             
             if($check){
                 
-                
                 for($i = 1; $i <= $check->Nmsgs; $i++){
+                    
                     $overview = imap_fetch_overview($this->conexao, $i);
                     
                     $email = current($overview);
@@ -58,99 +58,83 @@
                     $emails[$i]['uid'] =  $email->uid;
                     
                     // corpo da mensagem
-                    $emails[$i]['corpo'] =  imap_qprint(imap_body($this->conexao, $i));
+                    $emails[$i]['corpo'] =  quoted_printable_decode(imap_body($this->conexao, $i));
                     
-                    $mailStruct     = imap_fetchstructure($this->conexao, $i);
-                    $attachments    = $this->getAttachments($this->conexao, $i, $mailStruct, "");
-                    
-                    $emails[$i]['anexo'] = $attachments;
+                    $this->downloadAnexo($i, $email->uid);
                 }
                 
                 $this->printr($emails);
             }
         }
         
-        function getAttachments($imap, $mailNum, $part, $partNum) {
-            $attachments = array();
-         
-            if (isset($part->parts)) {
-                foreach ($part->parts as $key => $subpart) {
-                    if($partNum != "") {
-                        $newPartNum = $partNum . "." . ($key + 1);
-                    }
-                    else {
-                        $newPartNum = ($key+1);
-                    }
-                    $result = $this->getAttachments($imap, $mailNum, $subpart,
-                        $newPartNum);
-                    if (count($result) != 0) {
-                         array_push($attachments, $result);
-                     }
-                }
-            }
-            else if (isset($part->disposition)) {
-                if ($part->disposition == "ATTACHMENT") {
-                    $partStruct = imap_bodystruct($imap, $mailNum,
-                        $partNum);
-                    $attachmentDetails = array(
-                        "name"    => $part->dparameters[0]->value,
-                        "partNum" => $partNum,
-                        "enc"     => $partStruct->encoding
-                    );
-                    return $attachmentDetails;
-                }
-            }
-         
-            return $attachments;
-        }
-        
-        function corpo_mensagem($uid, $mime_type)
+        function downloadAnexo($id, $uid)
         {
-            return $this->get_part($uid, $mime_type);
-        }
-        
-        function get_part($uid, $mimetype, $structure = false, $partNumber = false) {
-            if (!$structure) {
-                   $structure = imap_fetchstructure($this->conexao, $uid, FT_UID);
-            }
-            if ($structure) {
-                if ($mimetype == $this->get_mime_type($structure)) {
-                    if (!$partNumber) {
-                        $partNumber = 1;
-                    }
-                    $text = imap_fetchbody($this->conexao, $uid, $partNumber, FT_UID);
-                    switch ($structure->encoding) {
-                        case 3: return imap_base64($text);
-                        case 4: return imap_qprint($text);
-                        default: return $text;
-                   }
-               }
-         
-                // multipart 
-                if (isset($structure->type) and $structure->type == 1) {
-                    foreach ($structure->parts as $index => $subStruct) {
-                        $prefix = "";
-                        if ($partNumber) {
-                            $prefix = $partNumber . ".";
+            $structure = imap_fetchstructure($this->conexao, $id);
+            
+            $attachments = array();
+            
+            if(isset($structure->parts) && count($structure->parts)){
+                
+                for($i = 0; $i < count($structure->parts); $i++){
+                    
+                    $attachments[$i] = array(
+                        'is_attachment' => false,
+                        'filename'      => '',
+                        'name'          => '',
+                        'attachment'    => ''
+                    );
+                    
+                    if($structure->parts[$i]->ifdparameters){
+                        
+                        foreach($structure->parts[$i]->parameters as $object){
+                            
+                            if(strtolower($object->attribute) == 'filename'){
+                                $attachments[$i]['is_attachment']   = true;
+                                $attachments[$i]['filename']        = $object->value;
+                            }
                         }
-                        $data = $this->get_part($this->conexao, $uid, $mimetype, $subStruct, $prefix . ($index + 1));
-                        if ($data) {
-                            return $data;
+                    }
+                    
+                    if($structure->parts[$i]->ifparameters){
+                        
+                        foreach($structure->parts[$i]->parameters as $object){
+                            
+                            if(strtolower($object->attribute) == 'name'){
+                                $attachments[$i]['is_attachment']   = true;
+                                $attachments[$i]['name']            = $object->value;
+                            }
+                        }
+                    }
+                    
+                    if($attachments[$i]['is_attachment']){
+                        
+                        $attachments[$i]['attachment'] = imap_fetchbody($this->conexao, $id, $i+1);
+                        
+                        /* 4 = QUOTED-PRINTABLE encoding */
+                        if($structure->parts[$i]->encoding == 3){
+                            $attachments[$i]['attachment'] = base64_decode($attachments[$i]['attachment']);
+                        }
+                        /* 3 = BASE64 encoding */
+                        elseif($structure->parts[$i]->encoding == 4){ 
+                            $attachments[$i]['attachment'] = quoted_printable_decode($attachments[$i]['attachment']);
                         }
                     }
                 }
             }
-            return false;
-        }
-         
-        function get_mime_type($structure) {
-            $primaryMimetype = array("TEXT", "MULTIPART", "MESSAGE", "APPLICATION", "AUDIO", "IMAGE", "VIDEO", "OTHER");
             
-            if (isset($structure->subtype)) {
-               return $primaryMimetype[(int)$structure->type] . "/" . $structure->subtype;
+            /* salvando na pasta*/
+            foreach($attachments as $attachment){
+                
+                if($attachment['is_attachment'] == 1){
+                    
+                    $filename = $attachment['name'];
+                    if(empty($filename)) $filename = $attachment['filename'];
+                    
+                    if(empty($filename)) $filename = time() . ".dat";
+                    
+                    file_put_contents('attachment/'.$uid . "-" . $filename, $attachment['attachment']);
+                }
             }
-            
-            return "TEXT/PLAIN";
         }
         
         function lista_caixa($todas = false)
@@ -177,35 +161,6 @@
             }
             
             return $pastas;
-        }
-        
-        function lista_email($pasta)
-        {
-            //$caixa = imap_open($this->servidor.'['.$pasta.']', $this->login, $this->senha);
-            
-            $caixa = imap_open($this->servidor, $this->login, $this->senha);
-            
-            //$check = imap_mailboxmsginfo($caixa);
-            
-            //echo 'aki';
-            //$mensagens = imap_check($check);
-           
-            
-            
-           
-           // Fetch an overview for all messages in INBOX
-           $result = imap_fetch_overview($caixa, 1);
-           
-           
-           
-           foreach ($result as $overview) {
-               echo "#{$overview->msgno} ({$overview->date}) - From: {$overview->from}
-               {$overview->subject}<br>";
-           }
-           imap_close($caixa);
-            
-            die('eteste');
-            
         }
         
         function printr($data)
