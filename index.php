@@ -6,14 +6,22 @@
 
     class read_mail{
         
-        private $servidor, $login, $senha;
+        private $servidor, $login, $senha, $host, $mysql_user, $mysql_password, $db, $link;
         public $conexao;
         
         function __construct ()
         {
-            $this->servidor = '{imap.gmail.com:993/imap/ssl}';
-            $this->login    = '';
-            $this->senha    = '';
+            $this->servidor         = '{imap.gmail.com:993/imap/ssl}';
+            $this->login            = '';
+            $this->senha            = '';
+            $this->host             = 'localhost';
+            $this->mysql_user       = 'root';
+            $this->mysql_password   = '123qwe';
+            $this->db               = 'read_mail';
+            
+            $this->conecta_mysql();
+            
+            die();
             
             $this->conecta_email();
             $this->salva_email();
@@ -63,7 +71,108 @@
                     $this->downloadAnexo($i, $email->uid);
                 }
                 
+                
+                
                 $this->printr($emails);
+            }
+        }
+        
+        function conecta_mysql()
+        {
+            echo utf8_decode('Conectando ao servidor de banco de dados...<br><br>');
+            
+            // conectando no mysql
+            $this->link = mysql_connect($this->host, $this->mysql_user, $this->mysql_password);
+            
+            if (!$this->link) {
+                die(utf8_decode('Não foi possível conectar: ' . mysql_error()));
+            }
+            
+            echo utf8_decode('Conexão bem sucedida...<br><br>');
+            
+            // consultando banco de dados
+            echo utf8_decode('Verificando se banco de dados '.$this->db.' está criado<br><br>');
+            $db_list = mysql_list_dbs($this->link);
+            
+            while ($row = mysql_fetch_array($db_list))
+            {
+               $return[] = $row[0];
+            }
+            
+            if(in_array($this->db, $return)){
+                
+                echo utf8_decode('Banco de dados encontrado<br><br>Verificando se tabela email_data está criada..<br><br>');
+                
+                // verifica se tem a tabela
+                $sql = "SHOW TABLES FROM ".$this->db." LIKE 'email_data'";
+                
+                $result = mysql_query($sql, $this->link);
+                $result = mysql_fetch_assoc($result);
+                
+                if(!$result){
+                    
+                    echo utf8_decode('Tabela email_data não encontada<br><br>Criando tabela<br><br>');
+                    
+                    mysql_select_db($this->db, $this->link);
+                    
+                    $sql = "CREATE TABLE IF NOT EXISTS `email_data` (
+                        `id` int(11) NOT NULL AUTO_INCREMENT,
+                        `assunto` text NOT NULL,
+                        `remetente` text NOT NULL,
+                        `data` text NOT NULL,
+                        `message_id` text NOT NULL,
+                        `uid` text NOT NULL,
+                        `corpo` text NOT NULL,
+                        `created_in` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        PRIMARY KEY (`id`)
+                        ) ENGINE=InnoDB DEFAULT CHARSET=latin1 AUTO_INCREMENT=1";
+                        
+                    if (mysql_query($sql, $this->link)){
+                        echo utf8_decode('Tabela criada com sucesso...<br><br>');
+                        
+                        return true;
+                    }else{
+                        die('Erro ao criar o tabela: ' . mysql_error());
+                    }
+                }
+                
+                echo utf8_decode('Tabela encontada<br><br>');
+                
+                return true;
+            }else{
+                
+                echo utf8_decode('Banco de dados não encontrado, iniciando rotina para criar banco....<br><br>');
+                
+                $sql = 'CREATE DATABASE '.$this->db;
+                
+                if (mysql_query($sql, $this->link)){
+                    echo utf8_decode("O banco de dados ".$this->db." foi criado<br> Criando tabela....<br><br>");
+                    
+                    mysql_select_db($this->db, $this->link);
+                    
+                    $sql = "CREATE TABLE IF NOT EXISTS `email_data` (
+                        `id` int(11) NOT NULL AUTO_INCREMENT,
+                        `assunto` text NOT NULL,
+                        `remetente` text NOT NULL,
+                        `data` text NOT NULL,
+                        `message_id` text NOT NULL,
+                        `uid` text NOT NULL,
+                        `corpo` text NOT NULL,
+                        `created_in` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        PRIMARY KEY (`id`)
+                        ) ENGINE=InnoDB DEFAULT CHARSET=latin1 AUTO_INCREMENT=1";
+                        
+                    if (mysql_query($sql, $this->link)){
+                        echo utf8_decode('Tabela criada com sucesso...<br><br>');
+                        
+                        return true;
+                        
+                    }else{
+                        die('Erro ao criar o tabela: ' . mysql_error());
+                    }
+                }else{
+                    die('Erro ao criar o banco de dados: ' . mysql_error());
+                }
             }
         }
         
@@ -172,7 +281,7 @@
         
         function __destruct()
         {
-            imap_close($this->conexao);
+            //imap_close($this->conexao);
         }
     }
     
