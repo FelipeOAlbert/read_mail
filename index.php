@@ -18,11 +18,9 @@
             $this->mysql_user       = 'root';
             $this->mysql_password   = '123qwe';
             $this->db               = 'read_mail';
+            $this->table            = 'email_data';
             
             $this->conecta_mysql();
-            
-            die();
-            
             $this->conecta_email();
             $this->salva_email();
         }
@@ -44,78 +42,65 @@
             
             if($check){
                 
+                $sql = "INSERT INTO `".$this->table."` (`id`, `assunto`, `remetente`, `data`,`message_id`, `uid`, `corpo`) VALUES";
+                
                 for($i = 1; $i <= $check->Nmsgs; $i++){
                     
                     $overview = imap_fetch_overview($this->conexao, $i);
                     
                     $email = current($overview);
                     
-                    // Assunto
-                    $emails[$i]['assunto'] = $email->subject;
-                    
-                    // Remetente
-                    $emails[$i]['remetente'] = $email->from;
-                    
-                    // Data
-                    $emails[$i]['data'] = $email->date;
-                    
-                    // Identificador da mensagem
-                    $emails[$i]['message_id'] =  $email->message_id;
-                    
-                    // Identificador da mensagem na caixa de entrada
-                    $emails[$i]['uid'] =  $email->uid;
-                    
                     // corpo da mensagem
-                    $emails[$i]['corpo'] =  quoted_printable_decode(imap_body($this->conexao, $i));
+                    $corpo =  quoted_printable_decode(imap_body($this->conexao, $i));
                     
                     $this->downloadAnexo($i, $email->uid);
+                    
+                    $sql .= " (NULL, '".mysql_real_escape_string($email->subject)."', '".mysql_real_escape_string($email->from)."', '".mysql_real_escape_string($email->date)."', '".mysql_real_escape_string($email->message_id)."', '".mysql_real_escape_string($email->uid)."', '".mysql_real_escape_string($corpo)."'),";
                 }
                 
+                $sql = substr($sql, 0, -1);
                 
+                if(mysql_query($sql, $this->link)){
+                    $cadastrados = mysql_affected_rows();
+                    echo 'Emails salvos: ' . $cadastrados.' <br><br>Script finalizado.';
+                    return true;
+                }
                 
-                $this->printr($emails);
+                echo mysql_errno($this->link) . ": " . mysql_error($this->link);
             }
+            
+            die('Erro ao salvar emails');
         }
         
         function conecta_mysql()
         {
-            echo utf8_decode('Conectando ao servidor de banco de dados...<br><br>');
-            
             // conectando no mysql
             $this->link = mysql_connect($this->host, $this->mysql_user, $this->mysql_password);
             
-            if (!$this->link) {
+            if (!$this->link){
                 die(utf8_decode('Não foi possível conectar: ' . mysql_error()));
             }
             
-            echo utf8_decode('Conexão bem sucedida...<br><br>');
-            
             // consultando banco de dados
-            echo utf8_decode('Verificando se banco de dados '.$this->db.' está criado<br><br>');
             $db_list = mysql_list_dbs($this->link);
             
-            while ($row = mysql_fetch_array($db_list))
-            {
+            while ($row = mysql_fetch_array($db_list)){
                $return[] = $row[0];
             }
             
             if(in_array($this->db, $return)){
                 
-                echo utf8_decode('Banco de dados encontrado<br><br>Verificando se tabela email_data está criada..<br><br>');
-                
                 // verifica se tem a tabela
-                $sql = "SHOW TABLES FROM ".$this->db." LIKE 'email_data'";
+                $sql = "SHOW TABLES FROM ".$this->db." LIKE '".$this->table."'";
                 
                 $result = mysql_query($sql, $this->link);
                 $result = mysql_fetch_assoc($result);
                 
                 if(!$result){
                     
-                    echo utf8_decode('Tabela email_data não encontada<br><br>Criando tabela<br><br>');
-                    
                     mysql_select_db($this->db, $this->link);
                     
-                    $sql = "CREATE TABLE IF NOT EXISTS `email_data` (
+                    $sql = "CREATE TABLE IF NOT EXISTS `".$this->table."` (
                         `id` int(11) NOT NULL AUTO_INCREMENT,
                         `assunto` text NOT NULL,
                         `remetente` text NOT NULL,
@@ -128,29 +113,25 @@
                         ) ENGINE=InnoDB DEFAULT CHARSET=latin1 AUTO_INCREMENT=1";
                         
                     if (mysql_query($sql, $this->link)){
-                        echo utf8_decode('Tabela criada com sucesso...<br><br>');
-                        
                         return true;
                     }else{
                         die('Erro ao criar o tabela: ' . mysql_error());
                     }
                 }
                 
-                echo utf8_decode('Tabela encontada<br><br>');
+                // caso tenha tabela, seleciona o banco
+                mysql_select_db($this->db, $this->link);
                 
                 return true;
             }else{
                 
-                echo utf8_decode('Banco de dados não encontrado, iniciando rotina para criar banco....<br><br>');
-                
                 $sql = 'CREATE DATABASE '.$this->db;
                 
                 if (mysql_query($sql, $this->link)){
-                    echo utf8_decode("O banco de dados ".$this->db." foi criado<br> Criando tabela....<br><br>");
                     
                     mysql_select_db($this->db, $this->link);
                     
-                    $sql = "CREATE TABLE IF NOT EXISTS `email_data` (
+                    $sql = "CREATE TABLE IF NOT EXISTS `".$this->table."` (
                         `id` int(11) NOT NULL AUTO_INCREMENT,
                         `assunto` text NOT NULL,
                         `remetente` text NOT NULL,
@@ -163,10 +144,7 @@
                         ) ENGINE=InnoDB DEFAULT CHARSET=latin1 AUTO_INCREMENT=1";
                         
                     if (mysql_query($sql, $this->link)){
-                        echo utf8_decode('Tabela criada com sucesso...<br><br>');
-                        
                         return true;
-                        
                     }else{
                         die('Erro ao criar o tabela: ' . mysql_error());
                     }
@@ -281,7 +259,7 @@
         
         function __destruct()
         {
-            //imap_close($this->conexao);
+            imap_close($this->conexao);
         }
     }
     
